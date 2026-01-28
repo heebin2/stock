@@ -54,6 +54,13 @@ def build_prompt(company_name: str, stock_code: str, stock_data: dict, current_t
 
 def run_gemini_analysis(company_name: str, stock_code: str, stock_data: dict):
     api_key = os.getenv("GEMINI_API_KEY")
+    
+    if not api_key:
+        print("\nGemini API 키가 설정되지 않았습니다.")
+        print("환경변수 GEMINI_API_KEY를 설정해주세요.")
+        print("예: export GEMINI_API_KEY='your-api-key'")
+        return
+    
     client = genai.Client(api_key=api_key)
     current_time = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
     prompt = build_prompt(company_name, stock_code, stock_data, current_time)
