@@ -1,11 +1,13 @@
 import sys
 import re
 from datetime import datetime
+from dotenv import load_dotenv
 from app.search import get_stock_code_from_naver
 from app.crawl import get_naver_finance_data, compute_summary, localize_key
 from app.gemini_client import run_gemini_analysis
 
-
+# .env 파일 로드
+load_dotenv()
 
 def print_crawled_data(stock_name, stock_code, stock_data):
     print(f"{stock_name}({stock_code})")
@@ -37,6 +39,11 @@ def analyze_stock_with_gemini(stock_input: str):
 
     if not stock_code:
         print(f"'{stock_input}' 종목을 찾을 수 없습니다.")
+        print("\n종목명 또는 코드가 올바른지 확인해주세요.")
+        print("예시:")
+        print("  - 정확한 종목명: python main.py '삼성전자'")
+        print("  - 종목 코드: python main.py '005930'")
+        print("  - 영문 티커: python main.py 'AAPL'")
         return
 
 

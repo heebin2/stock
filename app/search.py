@@ -3,63 +3,110 @@ import requests
 from bs4 import BeautifulSoup
 
 
+def _get_krx_data():
+    """FinanceDataReader에서 한국 주식 데이터 로드"""
+    try:
+        import FinanceDataReader as fdr
+        return fdr.StockListing("KRX")
+    except Exception as e:
+        return None
+
+
 def get_stock_code_from_naver(stock_name: str) -> str | None:
-    """네이버 검색으로 종목 코드 조회 (최적화된 접근)"""
+    """종목 코드 조회 - FinanceDataReader + 네이버 검색"""
+    try:
+        # 1. FinanceDataReader에서 동적 검색
+        result = _search_from_finance_data_reader(stock_name)
+        if result:
+            return result
+        
+        # 2. 네이버 파이낸스에서 직접 검색
+        result = _search_from_naver_finance(stock_name)
+        if result:
+            return result
+        
+        return None
+    except Exception as e:
+        return None
+
+
+def _search_from_finance_data_reader(stock_name: str) -> str | None:
+    """FinanceDataReader에서 종목 검색"""
+    try:
+        krx = _get_krx_data()
+        if krx is None:
+            return None
+        
+        # 정확한 일치
+        exact_match = krx[krx['Name'] == stock_name]
+        if len(exact_match) > 0:
+            return exact_match.iloc[0]['Code']
+        
+        # 포함 검색 (대소문자 무시)
+        partial_match = krx[krx['Name'].str.contains(stock_name, na=False, case=False)]
+        if len(partial_match) > 0:
+            return partial_match.iloc[0]['Code']
+        
+        return None
+    except Exception as e:
+        return None
+
+
+def _search_from_naver_finance(stock_name: str) -> str | None:
+    """네이버 파이낸스에서 직접 종목명 검색"""
     try:
         import urllib.parse
-        encoded_name = urllib.parse.quote(stock_name)
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         }
-
-        def norm(s):
-            return re.sub(r'\s+', '', s).lower()
-
-        # 공통 함수: 모든 검색 쿼리에 적용
-        def find_code_from_search(search_url):
-            try:
-                resp = requests.get(search_url, headers=headers, timeout=10)
-                resp.encoding = 'utf-8'
-                
-                # finance.naver.com 링크에서 모든 코드 추출
-                codes = set(re.findall(r'finance\.naver\.com/item/.*?code=(\d{6})', resp.text))
-                
-                # 각 코드 검증 (페이지 제목으로 확인)
-                for code in sorted(codes):
-                    try:
-                        page = requests.get(f"https://finance.naver.com/item/main.naver?code={code}", 
-                                          headers=headers, timeout=5)
-                        page.encoding = 'utf-8'
-                        page_text = page.text.lower()
-                        
-                        # 제목, h1, h2에서 검색
-                        if (f'<title>' in page.text and norm(stock_name) in norm(page.text[page.text.find('<title>'):page.text.find('</title>')]) or
-                            f'{norm(stock_name)}' in norm(page_text[:3000])):  # 페이지 상단 3000자에서 확인
-                            return code
-                    except:
-                        continue
-                
-                # 검증 실패 시 첫 코드 반환 (최후의 수단)
-                if codes:
-                    return sorted(codes)[0]
-            except:
-                pass
-            
-            return None
-
-        # 다양한 검색 쿼리 시도 (우선순위대로)
-        search_queries = [
-            f"https://search.naver.com/search.naver?where=nexearch&query={encoded_name}&sm=top_sug",
-            f"https://search.naver.com/search.naver?where=nexearch&query={encoded_name}+주식&sm=top_sug",
-            f"https://search.naver.com/search.naver?where=nexearch&query={encoded_name}+주&sm=top_sug",
-            f"https://search.naver.com/search.naver?where=nexearch&query={encoded_name}+stock&sm=top_sug",
-        ]
-
-        for search_url in search_queries:
-            result = find_code_from_search(search_url)
-            if result:
-                return result
-
+        
+        # 1. 네이버 파이낸스 종목 검색 URL
+        search_url = f"https://finance.naver.com/search/searchList.naver?keyword={urllib.parse.quote(stock_name)}"
+        
+        resp = requests.get(search_url, headers=headers, timeout=10)
+        resp.encoding = 'utf-8'
+        
+        # HTML에서 종목 코드 추출 - 여러 패턴 시도
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        
+        # 패턴 1: 일반 검색 결과 테이블
+        stock_rows = soup.find_all('tr')
+        for row in stock_rows:
+            # 셀 추출
+            cells = row.find_all('td')
+            if len(cells) >= 2:
+                # 종목명이 포함된 셀 찾기
+                name_cell = cells[0].get_text(strip=True)
+                if stock_name in name_cell:
+                    # 링크에서 코드 추출
+                    link = cells[0].find('a', href=re.compile(r'code=\d{6}'))
+                    if link:
+                        code_match = re.search(r'code=(\d{6})', link.get('href', ''))
+                        if code_match:
+                            return code_match.group(1)
+        
+        # 패턴 2: 직접 링크에서 추출
+        links = soup.find_all('a', href=re.compile(r'code=\d{6}'))
+        for link in links:
+            text = link.get_text(strip=True)
+            if stock_name.lower() in text.lower():
+                code_match = re.search(r'code=(\d{6})', link.get('href', ''))
+                if code_match:
+                    return code_match.group(1)
+        
+        # 패턴 3: 첫 번째 검색 결과 반환 (부분 매칭)
+        if links:
+            code_match = re.search(r'code=(\d{6})', links[0].get('href', ''))
+            if code_match:
+                # 최후의 수단 - 정확한 이름 확인 후
+                code = code_match.group(1)
+                # 검색된 코드로 실제 종목 정보 확인
+                verify_url = f"https://finance.naver.com/item/main.naver?code={code}"
+                verify_resp = requests.get(verify_url, headers=headers, timeout=5)
+                verify_resp.encoding = 'utf-8'
+                if stock_name in verify_resp.text:
+                    return code
+        
         return None
     except Exception as e:
         return None

@@ -12,13 +12,6 @@ def build_prompt(company_name: str, stock_code: str, stock_data: dict, current_t
     summary = compute_summary(stock_data)
     summary_str = "\n".join([f" - {k}: {v}" for k, v in summary.items()]) if summary else " - (요약 없음)"
 
-    # 크롤링된 원본 데이터 + 계산된 요약 정보를 모두 JSON으로 제공
-    full_payload = {
-        "stock_data": stock_data,
-        "summary": summary,
-    }
-    full_json = json.dumps(full_payload, ensure_ascii=False, indent=2)
-
     return f"""
 현재 시점: {current_time}
 
@@ -46,9 +39,6 @@ def build_prompt(company_name: str, stock_code: str, stock_data: dict, current_t
 ────────────────────────────────────────────────────────────
 의견: [매수/매도/보유 중 하나]
 사유: [100자 이내 이유]
-
-[전체 데이터(JSON)]
-{full_json}
 """
 
 
@@ -72,7 +62,9 @@ def run_gemini_analysis(company_name: str, stock_code: str, stock_data: dict):
             contents=prompt
         )
         if response and response.text:
-            print(response.text)
+            # ** 기호 제거
+            text = response.text.replace('**', '')
+            print(text)
         else:
             print("응답이 없습니다.")
     except Exception as e:
